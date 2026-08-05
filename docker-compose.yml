@@ -1,0 +1,125 @@
+x-app-build: &app-build
+  build:
+    context: .
+    dockerfile: Dockerfile
+
+services:
+  migrate:
+    <<: *app-build
+    container_name: clechstats_migrate
+    env_file:
+      - .env
+    volumes:
+      - static_volume:/app/static
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    networks:
+      - clechstats_net
+    restart: "no"
+    command: >
+      bash -c "
+      uv run python manage.py migrate --noinput &&
+      uv run python manage.py collectstatic --noinput --clear
+      "
+
+  web:
+    <<: *app-build
+    container_name: clechstats_web
+    mem_limit: 180m
+    cpus: 0.3
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "2"
+    env_file:
+      - .env
+    volumes:
+      - static_volume:/app/static
+    depends_on:
+      migrate:
+        condition: service_completed_successfully
+    expose:
+      - "8000"
+    entrypoint: ["/bin/bash", "/app/entrypoint.sh"]
+    restart: unless-stopped
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    networks:
+      - clechstats_net
+
+  celery:
+    <<: *app-build
+    container_name: clechstats_celery
+    mem_limit: 120m
+    cpus: 0.2
+    env_file:
+      - .env
+    depends_on:
+      redis:
+        condition: service_started
+      migrate:
+        condition: service_completed_successfully
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    networks:
+      - clechstats_net
+    command: uv run celery -A config worker --loglevel=warning --concurrency=1 --max-tasks-per-child=50
+    restart: unless-stopped
+
+  celery-beat:
+    <<: *app-build
+    container_name: clechstats_celery_beat
+    mem_limit: 80m
+    cpus: 0.1
+    command: uv run celery -A config beat --loglevel=warning
+    env_file:
+      - .env
+    depends_on:
+      redis:
+        condition: service_started
+      migrate:
+        condition: service_completed_successfully
+    networks:
+      - clechstats_net
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    restart: unless-stopped
+
+  redis:
+    image: redis:alpine
+    container_name: clechstats_redis
+    networks:
+      - clechstats_net
+    restart: unless-stopped
+    command: redis-server --maxmemory 50mb --maxmemory-policy allkeys-lru --save "" --appendonly no
+
+  nginx:
+    image: nginx:alpine
+    container_name: clechstats_nginx
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "2"
+    volumes:
+      - ./nginx.conf:/etc/nginx/conf.d/default.conf:ro
+      - static_volume:/app/static:ro
+    depends_on:
+      - web
+    restart: unless-stopped
+    networks:
+      - clechstats_net
+      - caddy-proxy
+    labels:
+      caddy: clech.duckinzzz.ru
+      caddy.reverse_proxy: "{{upstreams 80}}"
+
+networks:
+  clechstats_net:
+    driver: bridge
+  caddy-proxy:
+    external: true
+
+volumes:
+  static_volume:

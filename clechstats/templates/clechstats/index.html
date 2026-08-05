@@ -1,0 +1,440 @@
+{% load static %}
+
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Clash Royale Stats</title>
+    <link rel="icon" type="image/png" href="{% static 'clechstats/images/favicon.png' %}">
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Newsreader:ital,opsz,wght@0,6..72,400;0,6..72,500;1,6..72,400&family=Geist:wght@400;500;600&family=Geist+Mono:wght@400;500&display=swap">
+    <link rel="stylesheet" href="{% static 'clechstats/css/styles.css' %}">
+
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+</head>
+<body>
+
+<div class="page">
+    <header class="masthead">
+        <div class="masthead-row">
+            <span class="eyebrow">Clech Stats</span>
+            <span class="eyebrow muted">Auto-refresh 90s</span>
+        </div>
+        <h1>ХИХИ ХАХА<br><em>Clan statistics.</em></h1>
+        <p class="dek">Хронология побед и поражений по каждому отслеживаемому игроку. Наведите курсор на точку графика, чтобы увидеть состав колод и счёт боя.</p>
+    </header>
+
+    <section class="controls">
+        <div class="control-group">
+            <label for="playerSelect">Игрок</label>
+            <select id="playerSelect"></select>
+        </div>
+        <div class="legend">
+            <div class="legend-item">
+                <span class="legend-dot win"></span>
+                <span>Победа</span>
+            </div>
+            <div class="legend-item">
+                <span class="legend-dot loss"></span>
+                <span>Поражение</span>
+            </div>
+        </div>
+    </section>
+
+    <section class="main-content">
+        <div class="card chart-card">
+            <div class="card-head">
+                <span class="card-label">График</span>
+                <span class="card-meta">Трофеи / время</span>
+            </div>
+            <div class="chart-wrapper">
+                <div class="y-axis-container">
+                    <canvas id="yAxisChart"></canvas>
+                </div>
+                <div class="chart-container">
+                    <div class="chart-scroll-area" id="scrollArea">
+                        <canvas id="battleChart"></canvas>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <aside class="card last-battles">
+            <div class="card-head">
+                <span class="card-label">Последние бои</span>
+                <span class="card-meta">live</span>
+            </div>
+            <ul>
+                {% for battle in last_battles %}
+                    <li class="battle-row">
+                        <div class="battle-main">
+                            <span class="player">{{ battle.player }}</span>
+                            <span class="trophies">{{ battle.before }}</span>
+                            <span class="change {% if battle.change > 0 %}win{% else %}loss{% endif %}">
+                            {% if battle.change > 0 %}+{% endif %}{{ battle.change }}</span>
+                        </div>
+                        <div class="battle-time">{{ battle.ago }}</div>
+                    </li>
+                {% endfor %}
+            </ul>
+        </aside>
+    </section>
+
+    <div id="customHover" role="tooltip"></div>
+
+    <footer class="stats-info">
+        <span>Данные обновляются автоматически каждые 90 секунд</span>
+    </footer>
+</div>
+
+<script>
+    const ctx = document.getElementById('battleChart').getContext('2d');
+    const hoverDiv = document.getElementById('customHover');
+    const select = document.getElementById('playerSelect');
+    const dataObj = {{ data_json }};
+    const cardsCatalog = {{ cards_catalog_json }};
+    const playersList = {{ players_json }};
+    const defaultPlayer = "{{ default_player }}";
+
+    function formatLocalTime(isoString) {
+        const d = new Date(isoString);
+
+        const localTime = d.toLocaleString('ru-RU', {
+            day: '2-digit',
+            month: '2-digit',
+            year: 'numeric',
+            hour: '2-digit',
+            minute: '2-digit'
+        });
+
+        const offsetMinutes = -d.getTimezoneOffset();
+        const sign = offsetMinutes >= 0 ? '+' : '-';
+        const hours = Math.floor(Math.abs(offsetMinutes) / 60);
+
+        return `${localTime} (UTC${sign}${hours})`;
+    }
+
+
+    function buildCardsLayout(cards) {
+        return cards.map(c => {
+            const meta = cardsCatalog[c.id] || {};
+            const iconUrls = meta.iconUrls || {};
+            const isEvo = c.isEvo === true || c.isEvo === 'True';
+            const iconUrl = (isEvo && iconUrls.evolutionMedium) ? iconUrls.evolutionMedium : iconUrls.medium;
+            const name = meta.name || '';
+            return `
+                <div class="card-wrapper">
+                    <img src="${iconUrl}" alt="${name}" title="${name}" onload="this.parentElement.classList.add('loaded')" />
+                    <span class="card-level">${c.level}</span>
+                </div>
+            `;
+        }).join('');
+    }
+
+    function cardElixir(c) {
+        const meta = cardsCatalog[c.id] || {};
+        return meta.elixirCost || 0;
+    }
+
+    function buildTooltipHTML(pointData) {
+        if (!pointData || !pointData.battle_info) return `<div>Нет данных</div>`;
+        const info = pointData.battle_info;
+
+        const playerCrowns = info.player.crowns || 0;
+        const enemyCrowns = info.enemy.crowns || 0;
+
+        const playerAvgLevel = (info.player.cards.reduce((sum, c) => sum + c.level, 0) / info.player.cards.length).toFixed(1);
+        const enemyAvgLevel = (info.enemy.cards.reduce((sum, c) => sum + c.level, 0) / info.enemy.cards.length).toFixed(1);
+
+        function calculateAdjustedAvg(cards) {
+            const costs = cards.map(cardElixir);
+            const nonZero = costs.filter(v => v !== 0);
+            const hasZero = costs.some(v => v === 0);
+
+            if (hasZero && nonZero.length) {
+                const minCost = Math.min(...nonZero);
+                const maxCost = Math.max(...nonZero);
+                const sumNonZero = nonZero.reduce((s, v) => s + v, 0);
+                const avgMin = (sumNonZero + (minCost + 1)) / cards.length;
+                const avgMax = (sumNonZero + (maxCost + 1)) / cards.length;
+                return ((avgMin + avgMax) / 2).toFixed(1);
+            }
+            return (costs.reduce((s, v) => s + v, 0) / cards.length).toFixed(1);
+        }
+
+        const playerAvgCost = calculateAdjustedAvg(info.player.cards);
+        const enemyAvgCost = calculateAdjustedAvg(info.enemy.cards);
+        return `
+        <div class="tooltip-header">
+            <div><span class="th-key">Противник</span><span class="th-val">${info.enemy.nickname}</span></div>
+            <div><span class="th-key">Результат</span><span class="th-val ${pointData.change > 0 ? 'win' : 'loss'}">${pointData.change > 0 ? 'Победа' : 'Поражение'} (${pointData.change > 0 ? '+' : ''}${pointData.change})</span></div>
+            <div><span class="th-key">Время</span><span class="th-val">${formatLocalTime(pointData.battle_time)}</span></div>
+        </div>
+        <hr/>
+        <div class="battle-layout">
+            <div class="deck-column">
+                <div class="deck-label">Ваши карты</div>
+                <div class="player-cards">
+                    ${buildCardsLayout(info.player.cards)}
+                </div>
+                <div class="deck-stats">
+                    <div class="stat-item">avg lvl <b>${playerAvgLevel}</b></div>
+                    <div class="stat-item">avg cost <b>${playerAvgCost}</b></div>
+                </div>
+            </div>
+            <div class="score-divider">
+                <div class="score">${playerCrowns}<span>:</span>${enemyCrowns}</div>
+            </div>
+            <div class="deck-column">
+                <div class="deck-label">Противник</div>
+                <div class="enemy-cards">
+                    ${buildCardsLayout(info.enemy.cards)}
+                </div>
+                <div class="deck-stats">
+                    <div class="stat-item">avg lvl <b>${enemyAvgLevel}</b></div>
+                    <div class="stat-item">avg cost <b>${enemyAvgCost}</b></div>
+                </div>
+            </div>
+        </div>
+    `;
+    }
+
+    playersList.forEach(player => {
+        const option = document.createElement('option');
+        option.value = player;
+        option.textContent = player;
+        if (player === defaultPlayer) option.selected = true;
+        select.appendChild(option);
+    });
+
+    const inflight = {};
+    async function ensurePlayerData(name) {
+        if (dataObj[name]) return dataObj[name];
+        if (inflight[name]) return inflight[name];
+        inflight[name] = fetch(`api/player/${encodeURIComponent(name)}/`)
+            .then(r => {
+                if (!r.ok) throw new Error('fetch failed');
+                return r.json();
+            })
+            .then(payload => {
+                Object.assign(cardsCatalog, payload.catalog || {});
+                dataObj[name] = payload.player;
+                return dataObj[name];
+            })
+            .finally(() => { delete inflight[name]; });
+        return inflight[name];
+    }
+
+    let battleChart;
+    let yAxisChart;
+    let activeHoverKey = null;
+
+    function positionHover(pointCanvasX, pointCanvasY) {
+        const canvas = document.getElementById('battleChart');
+        const canvasRect = canvas.getBoundingClientRect();
+        const chartContainer = document.querySelector('.chart-container');
+        const containerRect = chartContainer.getBoundingClientRect();
+
+        // Point center in viewport coordinates
+        const pointVX = canvasRect.left + pointCanvasX;
+        const pointVY = canvasRect.top + pointCanvasY;
+
+        // If the point is outside the visible scroll area, hide tooltip
+        if (pointVX < containerRect.left - 1 || pointVX > containerRect.right + 1) {
+            hoverDiv.style.display = 'none';
+            return;
+        }
+
+        // Reveal before measuring so we get real dimensions
+        hoverDiv.style.visibility = 'hidden';
+        hoverDiv.style.display = 'block';
+        const tipW = hoverDiv.offsetWidth;
+        const tipH = hoverDiv.offsetHeight;
+
+        const margin = 12;
+        const gap = 16;
+        const vw = window.innerWidth;
+        const vh = window.innerHeight;
+
+        // Prefer right of point; flip left if no room
+        let left = pointVX + gap;
+        if (left + tipW > vw - margin) {
+            left = pointVX - gap - tipW;
+        }
+        // Clamp if still off-screen
+        left = Math.max(margin, Math.min(left, vw - tipW - margin));
+
+        // Vertically center on point, clamp to viewport
+        let top = pointVY - tipH / 2;
+        top = Math.max(margin, Math.min(top, vh - tipH - margin));
+
+        hoverDiv.style.left = left + 'px';
+        hoverDiv.style.top = top + 'px';
+        hoverDiv.style.visibility = 'visible';
+    }
+
+    function renderChart(playerName) {
+        const playerData = dataObj[playerName];
+        if (!playerData) return;
+
+        const totalPoints = playerData.x.length;
+        const minWidthPerPoint = 50;
+        const calculatedWidth = totalPoints * minWidthPerPoint;
+
+        const scrollArea = document.getElementById('scrollArea');
+        const containerWidth = document.querySelector('.chart-container').clientWidth;
+        scrollArea.style.width = Math.max(calculatedWidth, containerWidth) + 'px';
+
+        const WIN = '#346538';
+        const LOSS = '#9F2F2D';
+        const LINE = '#111111';
+
+        const chartData = {
+            labels: playerData.x,
+            datasets: [{
+                label: 'Трофеи',
+                data: playerData.y,
+                backgroundColor: playerData.custom.map(c => c.change > 0 ? WIN : LOSS),
+                borderColor: LINE,
+                borderWidth: 1.25,
+                pointRadius: 4,
+                pointHoverRadius: 6,
+                pointBackgroundColor: playerData.custom.map(c => c.change > 0 ? WIN : LOSS),
+                pointBorderColor: '#FFFFFF',
+                pointBorderWidth: 1.5,
+                tension: 0,
+                custom: playerData.custom
+            }]
+        };
+
+        const yAxisConfig = {
+            title: {display: false},
+            beginAtZero: false,
+            grid: { color: 'rgba(0,0,0,0.05)', drawBorder: false },
+            border: { display: false },
+            ticks: {
+                color: '#787774',
+                font: { family: "'Geist Mono', monospace", size: 11 }
+            },
+            afterFit: function(scale) {
+                scale.width = 56;
+            }
+        };
+
+        if (battleChart instanceof Chart) battleChart.destroy();
+        if (yAxisChart instanceof Chart) yAxisChart.destroy();
+
+        battleChart = new Chart(ctx, {
+            type: 'line',
+            data: chartData,
+            options: {
+                responsive: true,
+                maintainAspectRatio: false,
+                plugins: {
+                    legend: {display: false},
+                    tooltip: {
+                        enabled: false,
+                        external: context => {
+                            const point = context.tooltip.dataPoints?.[0];
+                            if (!point || !point.dataset?.custom) {
+                                hoverDiv.style.display = 'none';
+                                activeHoverKey = null;
+                                return;
+                            }
+                            const pointData = point.dataset.custom[point.dataIndex];
+                            if (!pointData) {
+                                hoverDiv.style.display = 'none';
+                                activeHoverKey = null;
+                                return;
+                            }
+
+                            const hoverKey = `${select.value}|${point.dataIndex}`;
+                            if (hoverKey !== activeHoverKey) {
+                                hoverDiv.innerHTML = buildTooltipHTML(pointData);
+                                activeHoverKey = hoverKey;
+                            }
+                            positionHover(point.element.x, point.element.y);
+                        }
+                    }
+                },
+                scales: {
+                    x: {
+                        ticks: { display: false },
+                        grid: { color: 'rgba(0,0,0,0.04)', drawBorder: false },
+                        border: { display: false }
+                    },
+                    y: yAxisConfig
+                }
+            }
+        });
+
+        const ctxY = document.getElementById('yAxisChart').getContext('2d');
+        const yChartData = {
+            labels: playerData.x,
+            datasets: [{
+                data: playerData.y,
+                borderColor: 'transparent',
+                backgroundColor: 'transparent',
+                pointRadius: 0,
+                pointHoverRadius: 0,
+                borderWidth: 0
+            }]
+        };
+
+        yAxisChart = new Chart(ctxY, {
+            type: 'line',
+            data: yChartData,
+            options: {
+                responsive: true,
+                maintainAspectRatio: false,
+                animation: false,
+                plugins: {
+                    legend: {display: false},
+                    tooltip: {enabled: false}
+                },
+                scales: {
+                    x: {
+                        ticks: { display: false },
+                        grid: { display: false, drawBorder: false },
+                        border: { display: false }
+                    },
+                    y: yAxisConfig
+                }
+            }
+        });
+
+        setTimeout(() => {
+            const container = document.querySelector('.chart-container');
+            container.scrollLeft = container.scrollWidth;
+        }, 10);
+    }
+
+    async function loadPlayer(name) {
+        hideHover();
+        select.disabled = true;
+        try {
+            await ensurePlayerData(name);
+            renderChart(name);
+        } catch (err) {
+            console.error(err);
+        } finally {
+            select.disabled = false;
+        }
+    }
+
+    renderChart(defaultPlayer);
+    select.addEventListener('change', e => loadPlayer(e.target.value));
+
+    function hideHover() {
+        hoverDiv.style.display = 'none';
+        activeHoverKey = null;
+    }
+
+    ctx.canvas.addEventListener('mouseleave', hideHover);
+    document.querySelector('.chart-container').addEventListener('scroll', hideHover, { passive: true });
+    window.addEventListener('resize', hideHover);
+</script>
+</body>
+</html>

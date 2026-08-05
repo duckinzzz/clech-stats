@@ -1,0 +1,47 @@
+networks:
+  clechstats_net:
+    name: clechstats_net
+    driver: bridge
+
+services:
+  web:
+    build:
+      context: .
+      dockerfile: dev.Dockerfile
+    container_name: clechstats_web_dev
+    env_file:
+      - .env
+    volumes:
+      - .:/app
+      - static_volume:/app/static
+    ports:
+      - "8000:8000"
+    command: uv run python manage.py runserver 0.0.0.0:8000
+    networks:
+      - clechstats_net
+
+  celery:
+    build:
+      context: .
+      dockerfile: dev.Dockerfile
+    container_name: clechstats_celery_dev
+    env_file:
+      - .env
+    depends_on:
+      - redis
+    volumes:
+      - .:/app
+    networks:
+      - clechstats_net
+    command: uv run celery -A config worker --loglevel=info --concurrency=2
+
+  redis:
+    image: redis:alpine
+    container_name: clechstats_redis_dev
+    ports:
+      - "6379:6379"
+    networks:
+      - clechstats_net
+
+volumes:
+  static_volume:
