@@ -5,9 +5,6 @@ from . import views
 app_name = 'clechstats'
 
 urlpatterns = [
-    # HTML page
-    path('', views.index, name='index'),
-
     # JSON API
     path('api/players/', views.players_list, name='players_list'),
     path('api/players/<str:name>/battles/', views.player_battles, name='player_battles'),
