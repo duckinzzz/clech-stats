@@ -1,7 +1,5 @@
 x-app-build: &app-build
-  build:
-    context: .
-    dockerfile: Dockerfile
+  image: ghcr.io/duckinzzz/clech-stats:latest
 
 services:
   migrate:
@@ -95,9 +93,7 @@ services:
     command: redis-server --maxmemory 50mb --maxmemory-policy allkeys-lru --save "" --appendonly no
 
   nginx:
-    build:
-      context: .
-      dockerfile: Dockerfile.nginx
+    image: ghcr.io/duckinzzz/clech-stats-nginx:latest
     container_name: clechstats_nginx
     logging:
       driver: "json-file"
