@@ -48,6 +48,12 @@ jobs:
           tags: |
             ghcr.io/${{ github.repository }}-nginx:latest
             ghcr.io/${{ github.repository }}-nginx:${{ github.sha }}
+      - name: Make image public
+        env:
+          GH_TOKEN: ${{ secrets.GHCR_PAT }}
+        run: |
+          gh api -X PATCH /user/packages/container/${{ github.event.repository.name }}/visibility -f visibility=public
+          gh api -X PATCH /user/packages/container/${{ github.event.repository.name }}-nginx/visibility -f visibility=public
 
   deploy:
     needs: build
