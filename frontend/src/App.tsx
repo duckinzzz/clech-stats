@@ -1,17 +1,30 @@
 import { useState, useMemo, useEffect } from 'react'
-import { usePlayers, usePlayerBattles, toChartPoints } from '@/api/client'
+import {
+  usePlayers,
+  usePlayersSummary,
+  usePlayerBattles,
+  toChartPoints,
+  summarize,
+} from '@/api/client'
 import Masthead from '@/components/Masthead'
 import ControlPanel from '@/components/ControlPanel'
 import TrophyChart from '@/components/TrophyChart'
 import RecentBattles from '@/components/RecentBattles'
-import Footer from '@/components/Footer'
+
+function Notice({ children }: { children: React.ReactNode }) {
+  return (
+    <div className="flex h-[260px] items-center justify-center border-y border-line text-[13px] text-faint">
+      {children}
+    </div>
+  )
+}
 
 export default function App() {
   const {
     data: playersData,
-    isLoading: playersLoading,
     isError: playersError,
   } = usePlayers()
+  const { data: summaryData } = usePlayersSummary()
   const players = playersData?.players ?? []
 
   const [selectedPlayer, setSelectedPlayer] = useState<string>('')
@@ -25,7 +38,6 @@ export default function App() {
     return ''
   }, [players, selectedPlayer])
 
-  // Sync initial player selection (avoid setState during render)
   useEffect(() => {
     if (!selectedPlayer && effectivePlayer) {
       setSelectedPlayer(effectivePlayer)
@@ -35,6 +47,7 @@ export default function App() {
   const {
     data: battlesData,
     isLoading: battlesLoading,
+    isFetching: battlesFetching,
     isError: battlesError,
   } = usePlayerBattles(effectivePlayer, 50)
 
@@ -42,75 +55,44 @@ export default function App() {
     () => (battlesData ? toChartPoints(battlesData) : []),
     [battlesData],
   )
-
+  const summary = useMemo(() => summarize(chartPoints), [chartPoints])
   const catalog = battlesData?.catalog ?? {}
 
   function renderChart() {
-    if (playersError) {
-      return (
-        <div className="flex items-center justify-center h-64 bg-bg-card border border-border rounded-lg">
-          <span className="font-mono text-sm text-loss">
-            Ошибка загрузки списка игроков
-          </span>
-        </div>
-      )
-    }
-
-    if (battlesError) {
-      return (
-        <div className="flex items-center justify-center h-64 bg-bg-card border border-border rounded-lg">
-          <span className="font-mono text-sm text-loss">
-            Ошибка загрузки данных игрока
-          </span>
-        </div>
-      )
-    }
-
+    if (playersError) return <Notice>Не удалось загрузить список игроков</Notice>
+    if (battlesError) return <Notice>Не удалось загрузить бои игрока</Notice>
     if (battlesLoading && chartPoints.length === 0) {
-      return (
-        <div className="flex items-center justify-center h-64 bg-bg-card border border-border rounded-lg">
-          <span className="font-mono text-sm text-text-muted">
-            Загрузка графика...
-          </span>
-        </div>
-      )
+      return <Notice>Загрузка графика…</Notice>
     }
-
+    if (chartPoints.length === 0) {
+      return <Notice>У этого игрока пока нет записанных боёв</Notice>
+    }
     return <TrophyChart points={chartPoints} catalog={catalog} />
   }
 
   return (
-    <div className="mx-auto max-w-[1200px] px-4 sm:px-6 lg:px-8">
-      {/* Layer 1: Masthead */}
-      <Masthead />
+    <div className="mx-auto max-w-[1240px] px-5 pb-12 sm:px-8 lg:px-10">
+      <Masthead playerName={effectivePlayer} summary={summary} />
 
-      {/* Layer 2: Control panel */}
       <ControlPanel
         players={players}
+        overview={summaryData?.players ?? []}
         selectedPlayer={effectivePlayer}
         onPlayerChange={setSelectedPlayer}
-        isLoading={playersLoading || battlesLoading}
       />
 
-      {/* Layer 3: Main block — two columns */}
-      <main className="mt-6 md:mt-8">
-        <div className="flex flex-col lg:flex-row gap-6 lg:gap-8">
-          {/* Left column: chart (wider) */}
-          <section className="flex-1 min-w-0">
-            {renderChart()}
-          </section>
-
-          {/* Right column: recent battles (sticky on desktop) */}
-          <aside className="lg:w-80 shrink-0">
-            <div className="lg:sticky lg:top-6">
-              <RecentBattles />
-            </div>
-          </aside>
+      <main className="mt-7 grid gap-8 lg:grid-cols-[minmax(0,1fr)_320px] lg:gap-10">
+        <div
+          className={`min-w-0 transition-opacity ${battlesFetching && chartPoints.length > 0 ? 'opacity-60' : ''}`}
+        >
+          {renderChart()}
         </div>
+        <aside>
+          <div className="lg:sticky lg:top-6">
+            <RecentBattles />
+          </div>
+        </aside>
       </main>
-
-      {/* Layer 5: Footer */}
-      <Footer />
     </div>
   )
 }

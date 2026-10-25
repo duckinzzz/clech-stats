@@ -1,9 +1,11 @@
-import { useQuery } from '@tanstack/react-query'
+import { keepPreviousData, useQuery } from '@tanstack/react-query'
 import type {
   PlayerListResponse,
   PlayerBattlesResponse,
   RecentBattlesResponse,
+  PlayersSummaryResponse,
   ChartPoint,
+  PlayerSummary,
 } from '@/types'
 
 /* ─── fetch helpers ─── */
@@ -22,6 +24,7 @@ async function fetchJson<T>(url: string): Promise<T> {
 
 export const queryKeys = {
   players: ['players'] as const,
+  playersSummary: ['playersSummary'] as const,
   playerBattles: (name: string, limit: number) =>
     ['playerBattles', name, limit] as const,
   recentBattles: (limit: number) => ['recentBattles', limit] as const,
@@ -37,6 +40,15 @@ export function usePlayers() {
   })
 }
 
+export function usePlayersSummary() {
+  return useQuery<PlayersSummaryResponse>({
+    queryKey: queryKeys.playersSummary,
+    queryFn: () => fetchJson<PlayersSummaryResponse>(`${BASE}/players/summary/`),
+    staleTime: 60_000,
+    refetchInterval: 60_000,
+  })
+}
+
 export function usePlayerBattles(name: string, limit: number = 30) {
   return useQuery<PlayerBattlesResponse>({
     queryKey: queryKeys.playerBattles(name, limit),
@@ -45,6 +57,7 @@ export function usePlayerBattles(name: string, limit: number = 30) {
         `${BASE}/players/${encodeURIComponent(name)}/battles/?limit=${limit}`,
       ),
     enabled: !!name,
+    placeholderData: keepPreviousData,
     staleTime: 60_000,
   })
 }
@@ -78,4 +91,35 @@ export function toChartPoints(data: PlayerBattlesResponse): ChartPoint[] {
       isLoss: change < 0,
     }
   })
+}
+
+export function summarize(points: ChartPoint[]): PlayerSummary | null {
+  if (points.length === 0) return null
+
+  const wins = points.filter((p) => p.isWin).length
+  const losses = points.filter((p) => p.isLoss).length
+  const first = points[0]
+  const last = points[points.length - 1]
+
+  let streak: PlayerSummary['streak'] = null
+  const lastResult = last.isWin ? 'win' : last.isLoss ? 'loss' : null
+  if (lastResult) {
+    let count = 0
+    for (let i = points.length - 1; i >= 0; i--) {
+      const isSame = lastResult === 'win' ? points[i].isWin : points[i].isLoss
+      if (!isSame) break
+      count++
+    }
+    streak = { result: lastResult, count }
+  }
+
+  return {
+    current: last.y,
+    delta: last.y - first.y,
+    wins,
+    losses,
+    battles: points.length,
+    lastBattle: last.battleTime,
+    streak,
+  }
 }

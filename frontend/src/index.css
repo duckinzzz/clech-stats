@@ -1,34 +1,36 @@
 @import 'tailwindcss';
 @import 'tw-animate-css';
 
-/* Geist Sans + Geist Mono from Fontsource */
-@import '@fontsource/geist-sans/400.css';
-@import '@fontsource/geist-sans/500.css';
-@import '@fontsource/geist-sans/600.css';
-@import '@fontsource/geist-mono/400.css';
-@import '@fontsource/geist-mono/500.css';
+@import '@fontsource-variable/unbounded';
+@import '@fontsource-variable/onest';
 
 @theme inline {
-  --font-sans: 'Geist', ui-sans-serif, system-ui, sans-serif;
-  --font-mono: 'Geist Mono', ui-monospace, monospace;
-  --font-serif: 'Newsreader', Georgia, serif;
+  --font-sans: 'Onest Variable', ui-sans-serif, system-ui, sans-serif;
+  --font-display: 'Unbounded Variable', 'Onest Variable', sans-serif;
 
-  --color-bg-page: #f9f7f4;
-  --color-bg-card: #ffffff;
-  --color-text-primary: #1a1a1a;
-  --color-text-secondary: #4a4a4a;
-  --color-text-muted: #8a8a8a;
-  --color-border: #e5e3e0;
-  --color-win: #4a7c59;
-  --color-loss: #c45c5c;
-  --color-tooltip-bg: #1a1a1a;
+  /* Arena at night: royal navy, trophy gold, elixir violet. */
+  --color-arena: #0a1830;
+  --color-arena-deep: #071224;
+  --color-deck: #10253f;
+  --color-deck-raised: #16304e;
+  --color-line: #24405e;
+  --color-line-soft: #1b3450;
+  --color-track: #4b6a8f;
+  --color-ink: #eef4fc;
+  --color-dim: #90a7c4;
+  --color-faint: #7890b3;
+  --color-gold: #f2c14b;
+  --color-gold-deep: #a97c22;
+  --color-coral: #ef6a52;
+  --color-elixir: #d371ff;
 
-  --color-accent: var(--color-text-primary);
-  --color-accent-foreground: var(--color-bg-card);
+  --color-rarity-common: #a9b8ca;
+  --color-rarity-rare: #f08a3c;
+  --color-rarity-epic: #c15bf2;
+  --color-rarity-legendary: #38c7e8;
+  --color-rarity-champion: #f2c14b;
 
-  --radius-sm: 0.25rem;
-  --radius-md: 0.5rem;
-  --radius-lg: 0.75rem;
+  --radius-card: 4px;
 }
 
 @layer base {
@@ -41,35 +43,53 @@
   html {
     -webkit-font-smoothing: antialiased;
     -moz-osx-font-smoothing: grayscale;
+    color-scheme: dark;
   }
 
   body {
-    font-family: var(--font-sans);
-    background-color: var(--color-bg-page);
-    color: var(--color-text-primary);
     margin: 0;
-    padding: 0;
     min-height: 100vh;
+    background-color: var(--color-arena);
+    color: var(--color-ink);
+    font-family: var(--font-sans);
+    font-size: 15px;
+    line-height: 1.5;
   }
 
-  /* Subtle radial gradients — atmospheric, barely visible */
-  body::before {
-    content: '';
-    position: fixed;
-    inset: 0;
-    pointer-events: none;
-    z-index: 0;
-    background:
-      radial-gradient(ellipse at 80% 20%, rgba(220, 200, 180, 0.15), transparent 50%),
-      radial-gradient(ellipse at 20% 80%, rgba(180, 190, 210, 0.10), transparent 50%);
+  ::selection {
+    background: var(--color-gold);
+    color: var(--color-arena);
   }
 
-  #root {
-    position: relative;
-    z-index: 1;
+  :focus-visible {
+    outline: 2px solid var(--color-gold);
+    outline-offset: 3px;
+    border-radius: 2px;
   }
 }
 
-@utility tabular-nums {
+@utility nums {
+  font-variant-numeric: tabular-nums;
   font-feature-settings: 'tnum' 1;
+}
+
+/* Roster rail scrolls sideways on phones; keep its scrollbar out of the way. */
+@utility rail {
+  scrollbar-width: none;
+  -ms-overflow-style: none;
+
+  &::-webkit-scrollbar {
+    display: none;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+    scroll-behavior: auto !important;
+  }
 }

@@ -6,40 +6,26 @@ export default function RecentBattles() {
   const battles = data?.battles ?? []
 
   return (
-    <div className="bg-bg-card border border-border rounded-lg overflow-hidden">
-      {/* Card header */}
-      <div className="flex items-center justify-between px-4 py-3 border-b border-border">
-        <span className="font-mono text-[10px] uppercase tracking-[0.2em] text-text-muted">
-          Последние бои
-        </span>
-        <span className="font-mono text-[10px] text-text-muted tabular-nums">
-          {battles.length}
-        </span>
+    <section aria-label="Последние бои">
+      <div className="flex items-baseline justify-between pb-3">
+        <h2 className="text-[13px] text-dim">Последние бои</h2>
+        <span className="nums text-[11px] text-faint">{battles.length}</span>
       </div>
 
-      {/* Battle list */}
-      <div className="px-4">
+      <div className="border-t border-line">
         {isLoading ? (
-          <div className="py-8 text-center">
-            <span className="font-mono text-xs text-text-muted">
-              Загрузка...
-            </span>
-          </div>
+          <p className="py-6 text-[13px] text-faint">Загрузка…</p>
         ) : battles.length === 0 ? (
-          <div className="py-8 text-center">
-            <span className="font-mono text-xs text-text-muted uppercase tracking-widest">
-              Нет данных
-            </span>
-          </div>
+          <p className="py-6 text-[13px] text-faint">Боёв пока нет</p>
         ) : (
-          battles.map((b, i) => (
+          battles.map((battle, index) => (
             <BattleRow
-              key={`${b.player}-${b.battle_time}-${i}`}
-              battle={b}
+              key={`${battle.player}-${battle.battle_time}-${index}`}
+              battle={battle}
             />
           ))
         )}
       </div>
-    </div>
+    </section>
   )
 }

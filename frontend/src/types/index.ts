@@ -9,6 +9,21 @@ export interface PlayerListResponse {
   players: PlayerItem[]
 }
 
+/* ─── Scoreboard strip ─── */
+
+export interface PlayerOverview {
+  tag: string
+  name: string
+  trophies: number | null
+  delta: number
+  battles: number
+  last_battle: string | null
+}
+
+export interface PlayersSummaryResponse {
+  players: PlayerOverview[]
+}
+
 /* ─── Recent battles ─── */
 
 export interface RecentBattle {
@@ -24,31 +39,36 @@ export interface RecentBattlesResponse {
 
 /* ─── Player battle history ─── */
 
+export type Rarity = 'common' | 'rare' | 'epic' | 'legendary' | 'champion'
+
 export interface CardRef {
   id: number
   level: number
+  maxLevel?: number | null
   isEvo: boolean
+  evoLevel: number
+  iconUrl: string
 }
 
 export interface CardInfo {
   name: string
-  rarity: string
+  rarity: Rarity
   elixirCost: number
   iconUrls: {
     medium: string
+    evolutionMedium?: string
+    heroMedium?: string
   }
 }
 
+export interface BattleSide {
+  crowns: number
+  cards: CardRef[]
+}
+
 export interface BattleInfo {
-  player: {
-    crowns: number
-    cards: CardRef[]
-  }
-  enemy: {
-    nickname: string
-    crowns: number
-    cards: CardRef[]
-  }
+  player: BattleSide & { nickname?: string }
+  enemy: BattleSide & { nickname: string }
 }
 
 export interface CustomPoint {
@@ -80,4 +100,16 @@ export interface ChartPoint {
   battleInfo: BattleInfo
   isWin: boolean
   isLoss: boolean
+}
+
+/* ─── Player summary (derived) ─── */
+
+export interface PlayerSummary {
+  current: number
+  delta: number
+  wins: number
+  losses: number
+  battles: number
+  lastBattle: string
+  streak: { result: 'win' | 'loss'; count: number } | null
 }

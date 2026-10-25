@@ -1,4 +1,4 @@
-import { useRef, useEffect, useMemo } from 'react'
+import { useMemo, useRef, useEffect, useState } from 'react'
 import {
   LineChart,
   Line,
@@ -9,187 +9,191 @@ import {
   ResponsiveContainer,
 } from 'recharts'
 import type { ChartPoint, CardInfo } from '@/types'
+import { formatNumber, plural } from '@/lib/utils'
 import BattleTooltip from './BattleTooltip'
-
-/* ─── types ─── */
 
 interface TrophyChartProps {
   points: ChartPoint[]
   catalog: Record<number, CardInfo>
 }
 
-/* ─── helpers ─── */
-
-function yTicks(min: number, max: number): number[] {
-  const pad = Math.max((max - min) * 0.1, 10)
-  const lo = Math.floor((min - pad) / 10) * 10
-  const hi = Math.ceil((max + pad) / 10) * 10
-  const step = Math.ceil((hi - lo) / 5 / 10) * 10 || 10
+function yScale(points: ChartPoint[]): { domain: [number, number]; ticks: number[] } {
+  const values = points.map((p) => p.y)
+  const min = Math.min(...values)
+  const max = Math.max(...values)
+  const span = Math.max(max - min, 20)
+  const step = Math.max(10, Math.ceil(span / 4 / 10) * 10)
+  const low = Math.floor(min / step) * step
+  const high = Math.ceil(max / step) * step
   const ticks: number[] = []
-  for (let v = lo; v <= hi; v += step) ticks.push(v)
-  return ticks
+  for (let value = low; value <= high; value += step) ticks.push(value)
+  return { domain: [low, high], ticks }
 }
 
-function getDotColor(change: number): string {
-  if (change > 0) return 'var(--color-win)'
-  if (change < 0) return 'var(--color-loss)'
-  return 'var(--color-text-muted)'
+function dotColor(change: number): string {
+  if (change > 0) return 'var(--color-gold)'
+  if (change < 0) return 'var(--color-coral)'
+  return 'var(--color-faint)'
 }
 
-/* ─── custom dot (purely visual — no hover logic) ─── */
+function useContainerWidth<T extends HTMLElement>() {
+  const ref = useRef<T>(null)
+  const [width, setWidth] = useState(0)
 
-function renderDot(props: {
-  cx?: number
-  cy?: number
-  payload?: ChartPoint
-}) {
-  const { cx, cy, payload } = props
-  if (cx == null || cy == null || !payload) return null
-  const color = getDotColor(payload.change)
-  return (
-    <circle
-      cx={cx}
-      cy={cy}
-      r={4}
-      fill={color}
-      stroke="var(--color-bg-card)"
-      strokeWidth={1.5}
-    />
-  )
+  useEffect(() => {
+    const node = ref.current
+    if (!node) return
+    const observer = new ResizeObserver(([entry]) => {
+      setWidth(entry.contentRect.width)
+    })
+    observer.observe(node)
+    return () => observer.disconnect()
+  }, [])
+
+  return { ref, width }
 }
 
-/* ─── tooltip renderer ─── */
-
-function renderTooltipContent(
-  tooltipProps: Record<string, unknown>,
-  catalog: Record<number, CardInfo>,
-) {
-  const payload = tooltipProps.payload as unknown as
-    | { payload: ChartPoint }[]
-    | undefined
-  if (!payload || payload.length === 0) return null
-  const point = payload[0].payload
-  if (!point?.battleInfo) return null
-  return <BattleTooltip point={point} catalog={catalog} />
+function usePrefersReducedMotion() {
+  const [reduced, setReduced] = useState(false)
+  useEffect(() => {
+    const query = window.matchMedia('(prefers-reduced-motion: reduce)')
+    setReduced(query.matches)
+    const onChange = (e: MediaQueryListEvent) => setReduced(e.matches)
+    query.addEventListener('change', onChange)
+    return () => query.removeEventListener('change', onChange)
+  }, [])
+  return reduced
 }
-
-/* ─── component ─── */
 
 export default function TrophyChart({ points, catalog }: TrophyChartProps) {
-  const scrollRef = useRef<HTMLDivElement>(null)
+  const { ref, width } = useContainerWidth<HTMLDivElement>()
+  const reducedMotion = usePrefersReducedMotion()
 
-  /* auto-scroll to latest battles on load */
-  useEffect(() => {
-    if (scrollRef.current) {
-      scrollRef.current.scrollLeft = scrollRef.current.scrollWidth
-    }
-  }, [points])
+  const scale = useMemo(() => yScale(points), [points])
+  // Below ~9px per battle the dots collide, so the line carries the shape.
+  const showDots = points.length > 0 && width / points.length >= 9
 
-  /* derived values */
-  const ticks = useMemo(() => {
-    if (points.length === 0) return []
-    const yMin = Math.min(...points.map((p) => p.y))
-    const yMax = Math.max(...points.map((p) => p.y))
-    return yTicks(yMin, yMax)
-  }, [points])
-
-  const chartHeight = 400
-
-  /*chart width: ensure each point has enough space */
-  const chartWidth = useMemo(
-    () => Math.max(points.length * 14, 600),
-    [points.length],
-  )
-
-  if (points.length === 0) {
-    return (
-      <div className="flex items-center justify-center h-64 bg-bg-card border border-border rounded-lg">
-        <span className="font-mono text-sm text-text-muted uppercase tracking-widest">
-          Нет данных
-        </span>
-      </div>
-    )
-  }
+  if (points.length === 0) return null
 
   return (
-    <div className="relative bg-bg-card border border-border rounded-lg">
-      <div className="flex">
-        {/* Fixed Y axis */}
-        <div
-          className="shrink-0 bg-bg-card border-r border-border flex flex-col justify-between py-6"
-          style={{ width: 52, height: chartHeight }}
-        >
-          {[...ticks].reverse().map((tick) => (
-            <div
-              key={tick}
-              className="font-mono text-[10px] text-text-muted text-right pr-2 tabular-nums leading-none"
-            >
-              {tick.toLocaleString()}
-            </div>
-          ))}
-        </div>
-
-        {/* Scrollable chart area */}
-        <div ref={scrollRef} className="overflow-x-auto flex-1">
-          <div style={{ width: chartWidth, minWidth: '100%' }}>
-            <ResponsiveContainer width="100%" height={chartHeight}>
-              <LineChart
-                data={points}
-                margin={{ top: 24, right: 24, bottom: 24, left: 8 }}
-              >
-                <CartesianGrid
-                  strokeDasharray="3 3"
-                  stroke="var(--color-border)"
-                  vertical={false}
-                />
-                <XAxis
-                  dataKey="x"
-                  tick={{
-                    fontFamily: 'Geist Mono, monospace',
-                    fontSize: 10,
-                    fill: 'var(--color-text-muted)',
-                  }}
-                  tickLine={false}
-                  axisLine={{ stroke: 'var(--color-border)' }}
-                  label={{
-                    value: 'Бой №',
-                    position: 'insideBottomRight',
-                    offset: -12,
-                    style: {
-                      fontFamily: 'Geist Mono, monospace',
-                      fontSize: 10,
-                      fill: 'var(--color-text-muted)',
-                    },
-                  }}
-                />
-                {/* Hidden YAxis — ticks rendered in fixed panel above */}
-                <YAxis
-                  hide
-                  domain={[ticks[0], ticks[ticks.length - 1]]}
-                  ticks={ticks}
-                />
-                <Tooltip
-                  content={(props) =>
-                    renderTooltipContent(
-                      props as unknown as Record<string, unknown>,
-                      catalog,
-                    )
-                  }
-                />
-                <Line
-                  type="monotone"
-                  dataKey="y"
-                  stroke="var(--color-text-muted)"
-                  strokeWidth={1.5}
-                  dot={renderDot}
-                  activeDot={{ r: 6 }}
-                  isAnimationActive={false}
-                />
-              </LineChart>
-            </ResponsiveContainer>
-          </div>
+    <section
+      aria-label={`График трофеев за ${points.length} ${plural(points.length, ['бой', 'боя', 'боёв'])}`}
+      className="min-w-0"
+    >
+      <div className="flex items-baseline justify-between gap-4 pb-3">
+        <h2 className="text-[13px] text-dim">
+          Последние {points.length}{' '}
+          {plural(points.length, ['бой', 'боя', 'боёв'])}
+        </h2>
+        <div className="flex items-center gap-4 text-[12px] text-dim">
+          <span className="flex items-center gap-1.5">
+            <span className="h-2 w-2 rounded-full bg-gold" aria-hidden="true" />
+            победа
+          </span>
+          <span className="flex items-center gap-1.5">
+            <span className="h-2 w-2 rounded-full bg-coral" aria-hidden="true" />
+            поражение
+          </span>
         </div>
       </div>
-    </div>
+
+      <div
+        ref={ref}
+        className="h-[260px] border-y border-line sm:h-[340px] lg:h-[400px]"
+      >
+        <ResponsiveContainer width="100%" height="100%">
+          <LineChart
+            data={points}
+            margin={{ top: 18, right: 14, bottom: 6, left: 0 }}
+          >
+            <CartesianGrid
+              stroke="var(--color-line-soft)"
+              strokeWidth={1}
+              vertical={false}
+            />
+            <XAxis
+              dataKey="x"
+              tick={{
+                fontFamily: 'Onest Variable, sans-serif',
+                fontSize: 10,
+                fill: 'var(--color-faint)',
+              }}
+              tickLine={false}
+              axisLine={false}
+              minTickGap={28}
+              tickMargin={8}
+              padding={{ left: 8, right: 8 }}
+            />
+            <YAxis
+              domain={scale.domain}
+              ticks={scale.ticks}
+              width={46}
+              tick={{
+                fontFamily: 'Onest Variable, sans-serif',
+                fontSize: 10,
+                fill: 'var(--color-faint)',
+              }}
+              tickFormatter={(value: number) => formatNumber(value)}
+              tickLine={false}
+              axisLine={false}
+              tickCount={5}
+            />
+            <Tooltip
+              offset={14}
+              allowEscapeViewBox={{ x: false, y: true }}
+              cursor={{ stroke: 'var(--color-line)', strokeWidth: 1 }}
+              content={(props) => (
+                <BattleTooltip
+                  point={
+                    (
+                      props.payload as unknown as
+                        | { payload: ChartPoint }[]
+                        | undefined
+                    )?.[0]?.payload
+                  }
+                  catalog={catalog}
+                />
+              )}
+            />
+            <Line
+              type="linear"
+              dataKey="y"
+              stroke="var(--color-track)"
+              strokeWidth={1.75}
+              dot={
+                showDots
+                  ? (props) => {
+                      const { cx, cy, payload } = props as {
+                        cx?: number
+                        cy?: number
+                        payload?: ChartPoint
+                      }
+                      if (cx == null || cy == null || !payload) return null
+                      return (
+                        <circle
+                          cx={cx}
+                          cy={cy}
+                          r={3.2}
+                          fill={dotColor(payload.change)}
+                          stroke="var(--color-arena)"
+                          strokeWidth={1.5}
+                        />
+                      )
+                    }
+                  : false
+              }
+              activeDot={{
+                r: 6,
+                fill: 'var(--color-ink)',
+                stroke: 'var(--color-arena)',
+                strokeWidth: 2,
+              }}
+              isAnimationActive={!reducedMotion}
+              animationDuration={700}
+            />
+          </LineChart>
+        </ResponsiveContainer>
+      </div>
+    </section>
   )
 }
